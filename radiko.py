@@ -10,6 +10,7 @@ import subprocess
 from bs4 import BeautifulSoup
 import datetime
 
+
 class Radiko:
     def get_program_by_channel(self, channel, rec_time):
         # 週間番組表を取得する
@@ -43,7 +44,7 @@ class Radiko:
                 prog['url'] = k.url.string
                 prog['desc'] = k.desc.string
                 p_info = k.info.string
-                if p_info != None:
+                if p_info is not None:
                     p_info = BeautifulSoup(p_info, "html.parser").get_text()
                 prog['info'] = p_info
                 prog['pfm'] = k.pfm.string
@@ -64,7 +65,19 @@ class Radiko:
             channel_list.append(m)
         return channel_list
 
-    def auth(self):
+    def get_premium_cookies(self, mail, password):
+        login_url = "https://radiko.jp/ap/member/login/login"
+        check_url = "https://radiko.jp/ap/member/webapi/member/login/check"
+        data = {
+            'mail': mail,
+            'pass': password
+            }
+        r = requests.session()
+        # 与えられた認証情報でログインし、そのクッキーを戻り値として返す
+        r.post(login_url, data=data)
+        return r.cookies
+
+    def auth(self, cookies = None):
         # auth urlやheaders, auth_keyの定義
         auth1_url = "https://radiko.jp/v2/api/auth1"
         auth2_url = "https://radiko.jp/v2/api/auth2"
@@ -86,7 +99,7 @@ class Radiko:
         KeyOffset = int(res.headers["X-Radiko-KeyOffset"])
         tmp_authkey = auth_key[KeyOffset:KeyOffset+KeyLength]
         AuthKey = base64.b64encode(tmp_authkey.encode('utf-8')).decode('utf-8')
-        
+       
         headers = {
             "X-Radiko-AuthToken": AuthToken,
             "X-Radiko-PartialKey": AuthKey,
@@ -94,25 +107,25 @@ class Radiko:
             "X-Radiko-Device": "pc"
         }
         # auth2にアクセス
-        res = requests.get(auth2_url, headers=headers)
+        res = requests.get(auth2_url, headers=headers, cookies=cookies)
         if (res.status_code != 200):
             print("Auth2に失敗しました")
             return None
-        
+       
         area = res.text.strip().split(",")
         areaid = area[0]
         return AuthToken, areaid
 
     def record_streaming(self, channel, duration, output):
         # 一旦radikoプレミアムなしで認証
-        AuthToken, areaid = self.auth() 
+        AuthToken, areaid = self.auth()
 
         # 録音する局がプレミアムなしで録音できる局かどうかを判定する
         if channel not in self.get_channel_list(areaid):
             print("地域判定は、%sです。現在の地域判定では録音できません。" % areaid)
-            # 本来ならばここで、プレミアムの認証に移る
-            return None
-        
+            # radikoプレミアムにログインして、再度認証をやり直す
+            AuthToken, areaid = self.auth(cookies=self.get_premium_cookies(mail='hoge@hoge.com', password='hoge'))
+      
         print("地域判定は、%sです。現在の地域判定で録音できます。" % areaid)
 
         headers = {"X-Radiko-AuthToken": AuthToken}
@@ -124,7 +137,7 @@ class Radiko:
             print(res.text)
 
         body = res.text
-        lines = re.findall( '^https?://.+m3u8$' , body, flags=(re.MULTILINE) )
+        lines = re.findall('^https?://.+m3u8$', body, flags=(re.MULTILINE))
         if len(lines) <= 0:
             print("m3u8プレイリストを取得できませんでした")
             return None
@@ -153,10 +166,11 @@ class Radiko:
         p1.communicate(b'q')
 
         return None
-    
+ 
     def record_timefree(self, channel, start, end, output):
         return None
 
+  
 if __name__ == '__main__':
     radiko = Radiko()
-    radiko.record_streaming("CBC", "1", "test2")
+    radiko.record_streaming("LFR", "1", "test2")
