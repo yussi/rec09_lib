@@ -9,7 +9,10 @@ import time
 import subprocess
 from bs4 import BeautifulSoup
 import datetime
+import configparser
 
+config_ini = configparser.ConfigParser()
+config_ini.read('config.ini', encoding='utf-8')
 
 class Radiko:
     def get_program_by_channel(self, channel, rec_time):
@@ -124,7 +127,7 @@ class Radiko:
         if channel not in self.get_channel_list(areaid):
             print("地域判定は、%sです。現在の地域判定では録音できません。" % areaid)
             # radikoプレミアムにログインして、再度認証をやり直す
-            AuthToken, areaid = self.auth(cookies=self.get_premium_cookies(mail='hoge@hoge.com', password='hoge'))
+            AuthToken, areaid = self.auth(cookies=self.get_premium_cookies(mail=config_ini['PREMIUM_AUTH']['mail'], password=config_ini['PREMIUM_AUTH']['password']))
       
         print("地域判定は、%sです。現在の地域判定で録音できます。" % areaid)
 
@@ -173,4 +176,4 @@ class Radiko:
   
 if __name__ == '__main__':
     radiko = Radiko()
-    radiko.record_streaming("LFR", "1", "test2")
+    radiko.record_streaming("QRR", "1", "test3")
