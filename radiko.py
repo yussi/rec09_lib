@@ -201,10 +201,4 @@ if __name__ == '__main__':
         radiko.record_streaming(args[2], args[3], args[4])
     elif args[1] == "timefree":
         radiko.record_timefree(args[2], args[3], args[4], args[5])
-    
-#    print(radiko.get_program_by_channel("TOKAIRADIO", datetime.datetime.strptime("20200419115000", '%Y%m%d%H%M%S')))
-#    radiko.record_timefree("TBS", "20200419100000", "20200419100100", "test10")
-#    radiko.record_streaming("QRR", "1", "test9")
-
-
-
+        
