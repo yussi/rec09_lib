@@ -10,6 +10,7 @@ import subprocess
 from bs4 import BeautifulSoup
 import datetime
 import configparser
+import sys
 
 config_ini = configparser.ConfigParser()
 config_ini.read('config.ini', encoding='utf-8')
@@ -165,6 +166,7 @@ class Radiko:
         # 指定時間経つまで待機して、終了したら録音中断する
         time.sleep(int(duration)*60)
         p1.communicate(b'q')
+
         return None
  
     def record_timefree(self, channel, start, end, output):
@@ -174,23 +176,35 @@ class Radiko:
         prog_data = self.get_program_by_channel(channel, datetime.datetime.strptime(start, '%Y%m%d%H%M%S'))
         print('録画する放送局は%s、番組名は%sです' % (prog_data['channel'], prog_data['title']))
         # ファイル名を決める
-        output = config_ini['PATH']['rec_path'] + output + "_" + datetime.datetime.strftime(start, '%Y-%m-%d') + ".m4a"
+        output = config_ini['PATH']['rec_path'] + output + "_" + datetime.datetime.strptime(start, '%Y%m%d%H%M%S').strftime('%Y-%m-%d') + ".m4a"
         print('録音ファイル名は、%sです' % output)
         title = prog_data['ft'].strftime('%Y-%m-%d') + "放送_" + prog_data['title'] 
-
 
         # ffmpegで録音する
         command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=%s&l=15&ft=%s&to=%s" -metadata title="%s" -metadata artist="%s" -metadata album="%s" -bsf:a aac_adtstoasc -acodec copy "%s"' % (AuthToken, channel, start, end, title, prog_data['pfm'], prog_data['title'], output))
         print(command)
-        p1 = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, shell=True)
-        
+        p1 = subprocess.run(command, shell=True)
         return None
-  
+
+    
 if __name__ == '__main__':
+    # ストリーミング録音モード radiko.py streaming (channel) (duration[min]) (filename)
+    # タイムフリー録音モード radiko.py timefree (channel) (t_ft) (t_to) (filename)
+    args = sys.argv
     radiko = Radiko()
+    
+    if len(args) == 1:
+        print("Usage")
+        print("ストリーミング録音モード radiko.py streaming (channel) (duration[min]) (filename)")
+        print("タイムフリー録音モード radiko.py timefree (channel) (t_ft) (t_to) (filename)")
+    elif args[1] == "streaming":
+        radiko.record_streaming(args[2], args[3], args[4])
+    elif args[1] == "timefree":
+        radiko.record_timefree(args[2], args[3], args[4], args[5])
+    
 #    print(radiko.get_program_by_channel("TOKAIRADIO", datetime.datetime.strptime("20200419115000", '%Y%m%d%H%M%S')))
-    radiko.record_timefree("LFR", "20200417010000", "20200417030000", "okamura_ann")
-#    radiko.record_streaming("LFR", "1", "test8")
+#    radiko.record_timefree("TBS", "20200419100000", "20200419100100", "test10")
+#    radiko.record_streaming("QRR", "1", "test9")
 
 
 
