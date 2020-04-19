@@ -119,17 +119,16 @@ class Radiko:
         areaid = area[0]
         return AuthToken, areaid
 
-    def record_streaming(self, channel, duration, output):
+    def get_m3u8_authtoken(self, channel):
         # 一旦radikoプレミアムなしで認証
         AuthToken, areaid = self.auth()
+        print("地域判定は、%sです。" % areaid)
 
         # 録音する局がプレミアムなしで録音できる局かどうかを判定する
         if channel not in self.get_channel_list(areaid):
-            print("地域判定は、%sです。現在の地域判定では録音できません。" % areaid)
+            print("現在の地域判定では録音できません。プレミアム認証を行います。")
             # radikoプレミアムにログインして、再度認証をやり直す
             AuthToken, areaid = self.auth(cookies=self.get_premium_cookies(mail=config_ini['PREMIUM_AUTH']['mail'], password=config_ini['PREMIUM_AUTH']['password']))
-      
-        print("地域判定は、%sです。現在の地域判定で録音できます。" % areaid)
 
         headers = {"X-Radiko-AuthToken": AuthToken}
         # m3u8プレイリストを取得する
@@ -147,33 +146,51 @@ class Radiko:
         print(lines[0])
         m3u8 = lines[0]
 
+        return m3u8, AuthToken
+    
+    def record_streaming(self, channel, duration, output):
+        # m3u8プレイリスト, AuthTokenを取得する
+        m3u8, AuthToken = self.get_m3u8_authtoken(channel)
         # 録音する番組のデータを取得する
         prog_data = self.get_program_by_channel(channel, datetime.datetime.now())
         print('録画する放送局は%s、番組名は%sです' % (prog_data['channel'], prog_data['title']))
-
         # ファイル名を決める
-        output = output + "_" + datetime.datetime.now().strftime('%Y-%m-%d') + ".m4a"
+        output = config_ini['PATH']['rec_path'] + output + "_" + datetime.datetime.now().strftime('%Y-%m-%d') + ".m4a"
         print('録音ファイル名は、%sです' % output)
-
-        # 番組名が取得できていない場合の録音スクリプト
-#        command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "%s" -acodec copy  "%s"' % (AuthToken, m3u8, output))
-
-
         title = prog_data['ft'].strftime('%Y-%m-%d') + "放送_" + prog_data['title'] 
         # ffmpegで録音する
-        command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "%s" -metadata title="%s" -metadata artist="%s" -metadata album="%s" -acodec copy  "%s"' % (AuthToken, m3u8, title, prog_data['pfm'], prog_data['title'], output))
+        command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "%s" -metadata title="%s" -metadata artist="%s" -metadata album="%s" -bsf:a aac_adtstoasc -acodec copy "%s"' % (AuthToken, m3u8, title, prog_data['pfm'], prog_data['title'], output))
         print(command)
-
         p1 = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, shell=True)
+        # 指定時間経つまで待機して、終了したら録音中断する
         time.sleep(int(duration)*60)
         p1.communicate(b'q')
-
         return None
  
     def record_timefree(self, channel, start, end, output):
-        return None
+        # m3u8プレイリスト, AuthTokenを取得する
+        m3u8, AuthToken = self.get_m3u8_authtoken(channel)
+        # 録音する番組のデータを取得する
+        prog_data = self.get_program_by_channel(channel, datetime.datetime.strptime(start, '%Y%m%d%H%M%S'))
+        print('録画する放送局は%s、番組名は%sです' % (prog_data['channel'], prog_data['title']))
+        # ファイル名を決める
+        output = config_ini['PATH']['rec_path'] + output + "_" + datetime.datetime.strftime(start, '%Y-%m-%d') + ".m4a"
+        print('録音ファイル名は、%sです' % output)
+        title = prog_data['ft'].strftime('%Y-%m-%d') + "放送_" + prog_data['title'] 
 
+
+        # ffmpegで録音する
+        command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=%s&l=15&ft=%s&to=%s" -metadata title="%s" -metadata artist="%s" -metadata album="%s" -bsf:a aac_adtstoasc -acodec copy "%s"' % (AuthToken, channel, start, end, title, prog_data['pfm'], prog_data['title'], output))
+        print(command)
+        p1 = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, shell=True)
+        
+        return None
   
 if __name__ == '__main__':
     radiko = Radiko()
-    radiko.record_streaming("QRR", "1", "test3")
+#    print(radiko.get_program_by_channel("TOKAIRADIO", datetime.datetime.strptime("20200419115000", '%Y%m%d%H%M%S')))
+    radiko.record_timefree("LFR", "20200417010000", "20200417030000", "okamura_ann")
+#    radiko.record_streaming("LFR", "1", "test8")
+
+
+
