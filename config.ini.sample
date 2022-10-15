@@ -4,3 +4,4 @@ rec_path = ./
 [PREMIUM_AUTH]
 mail = example@example.com
 password = example
+session = example

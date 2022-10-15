@@ -15,6 +15,7 @@ import sys
 config_ini = configparser.ConfigParser()
 config_ini.read('config.ini', encoding='utf-8')
 
+
 class Radiko:
     def get_program_by_channel(self, channel, rec_time):
         # 週間番組表を取得する
@@ -70,30 +71,35 @@ class Radiko:
         return channel_list
 
     def get_premium_cookies(self, mail, password):
-        login_url = "https://radiko.jp/ap/member/login/login"
+        login_url = "https://radiko.jp/member/login"
         check_url = "https://radiko.jp/ap/member/webapi/member/login/check"
         data = {
             'mail': mail,
             'pass': password
-            }
+        }
         r = requests.session()
         # 与えられた認証情報でログインし、そのクッキーを戻り値として返す
         r.post(login_url, data=data)
+        r.get(check_url)
         return r.cookies
 
-    def auth(self, cookies = None):
+    def auth(self, cookies=None):
         # auth urlやheaders, auth_keyの定義
         auth1_url = "https://radiko.jp/v2/api/auth1"
         auth2_url = "https://radiko.jp/v2/api/auth2"
         auth_key = "bcd151073c03b352e1ef2fd66c32209da9ca0afa"
         headers = {
-          "X-Radiko-App": "pc_html5",
-          "X-Radiko-App-Version": "0.0.1",
-          "X-Radiko-User": "test-stream",
-          "X-Radiko-Device": "pc"
+            "X-Radiko-App": "pc_html5",
+            "X-Radiko-App-Version": "0.0.1",
+            "X-Radiko-User": "test-stream",
+            "X-Radiko-Device": "pc"
         }
+        cookies = dict(
+            radiko_session=config_ini['PREMIUM_AUTH']['session'])
         # auth1にアクセス
+        #res = requests.get(auth1_url, headers=headers, cookies=cookies)
         res = requests.get(auth1_url, headers=headers)
+
         if (res.status_code != 200):
             print("Auth1に失敗しました")
             return None
@@ -103,24 +109,25 @@ class Radiko:
         KeyOffset = int(res.headers["X-Radiko-KeyOffset"])
         tmp_authkey = auth_key[KeyOffset:KeyOffset+KeyLength]
         AuthKey = base64.b64encode(tmp_authkey.encode('utf-8')).decode('utf-8')
-       
+
         headers = {
             "X-Radiko-AuthToken": AuthToken,
             "X-Radiko-PartialKey": AuthKey,
             "X-Radiko-User": "test-stream",
             "X-Radiko-Device": "pc"
         }
-        # auth2にアクセス
+
         res = requests.get(auth2_url, headers=headers, cookies=cookies)
         if (res.status_code != 200):
             print("Auth2に失敗しました")
             return None
-       
+
         area = res.text.strip().split(",")
         areaid = area[0]
+        print(cookies)
         return AuthToken, areaid
 
-    def get_m3u8_authtoken(self, channel):
+    def get_m3u8_authtoken(self, channel, start, end):
         # 一旦radikoプレミアムなしで認証
         AuthToken, areaid = self.auth()
         print("地域判定は、%sです。" % areaid)
@@ -129,7 +136,8 @@ class Radiko:
         if channel not in self.get_channel_list(areaid):
             print("現在の地域判定では録音できません。プレミアム認証を行います。")
             # radikoプレミアムにログインして、再度認証をやり直す
-            AuthToken, areaid = self.auth(cookies=self.get_premium_cookies(mail=config_ini['PREMIUM_AUTH']['mail'], password=config_ini['PREMIUM_AUTH']['password']))
+            AuthToken, areaid = self.auth(cookies=self.get_premium_cookies(
+                mail=config_ini['PREMIUM_AUTH']['mail'], password=config_ini['PREMIUM_AUTH']['password']))
 
         headers = {"X-Radiko-AuthToken": AuthToken}
         # m3u8プレイリストを取得する
@@ -148,57 +156,69 @@ class Radiko:
         m3u8 = lines[0]
 
         return m3u8, AuthToken
-    
+
     def record_streaming(self, channel, duration, output):
         # m3u8プレイリスト, AuthTokenを取得する
         m3u8, AuthToken = self.get_m3u8_authtoken(channel)
         # 録音する番組のデータを取得する
-        prog_data = self.get_program_by_channel(channel, datetime.datetime.now())
-        print('録画する放送局は%s、番組名は%sです' % (prog_data['channel'], prog_data['title']))
+        prog_data = self.get_program_by_channel(
+            channel, datetime.datetime.now())
+        print('録画する放送局は%s、番組名は%sです' %
+              (prog_data['channel'], prog_data['title']))
         # ファイル名を決める
-        output = config_ini['PATH']['rec_path'] + output + "_" + datetime.datetime.now().strftime('%Y-%m-%d') + ".m4a"
+        output = config_ini['PATH']['rec_path'] + output + "_" + \
+            datetime.datetime.now().strftime('%Y-%m-%d') + ".m4a"
         print('録音ファイル名は、%sです' % output)
-        title = prog_data['ft'].strftime('%Y-%m-%d') + "放送_" + prog_data['title'] 
+        title = prog_data['ft'].strftime(
+            '%Y-%m-%d') + "放送_" + prog_data['title']
         # ffmpegで録音する
-        command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "%s" -metadata title="%s" -metadata artist="%s" -metadata album="%s" -bsf:a aac_adtstoasc -acodec copy "%s"' % (AuthToken, m3u8, title, prog_data['pfm'], prog_data['title'], output))
+        command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "%s" -metadata title="%s" -metadata artist="%s" -metadata album="%s" -bsf:a aac_adtstoasc -acodec copy "%s"' %
+                   (AuthToken, m3u8, title, prog_data['pfm'], prog_data['title'], output))
         print(command)
-        p1 = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, shell=True)
+        p1 = subprocess.Popen(command, stdin=subprocess.PIPE,
+                              stdout=subprocess.DEVNULL, shell=True)
         # 指定時間経つまで待機して、終了したら録音中断する
         time.sleep(int(duration)*60)
         p1.communicate(b'q')
 
         return None
- 
+
     def record_timefree(self, channel, start, end, output):
         # m3u8プレイリスト, AuthTokenを取得する
-        m3u8, AuthToken = self.get_m3u8_authtoken(channel)
+        m3u8, AuthToken = self.get_m3u8_authtoken(channel, start, end)
         # 録音する番組のデータを取得する
-        prog_data = self.get_program_by_channel(channel, datetime.datetime.strptime(start, '%Y%m%d%H%M%S'))
-        print('録画する放送局は%s、番組名は%sです' % (prog_data['channel'], prog_data['title']))
+        prog_data = self.get_program_by_channel(
+            channel, datetime.datetime.strptime(start, '%Y%m%d%H%M%S'))
+        print('録画する放送局は%s、番組名は%sです' %
+              (prog_data['channel'], prog_data['title']))
         # ファイル名を決める
-        output = config_ini['PATH']['rec_path'] + output + "_" + datetime.datetime.strptime(start, '%Y%m%d%H%M%S').strftime('%Y-%m-%d') + ".m4a"
+        output = config_ini['PATH']['rec_path'] + output + "_" + \
+            datetime.datetime.strptime(
+                start, '%Y%m%d%H%M%S').strftime('%Y-%m-%d') + ".m4a"
         print('録音ファイル名は、%sです' % output)
-        title = prog_data['ft'].strftime('%Y-%m-%d') + "放送_" + prog_data['title'] 
+        title = prog_data['ft'].strftime(
+            '%Y-%m-%d') + "放送_" + prog_data['title']
 
         # ffmpegで録音する
-        command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=%s&l=15&ft=%s&to=%s" -metadata title="%s" -metadata artist="%s" -metadata album="%s" -bsf:a aac_adtstoasc -acodec copy "%s"' % (AuthToken, channel, start, end, title, prog_data['pfm'], prog_data['title'], output))
+        command = ('ffmpeg -loglevel error -headers "X-Radiko-AuthToken: %s" -i "https://radiko.jp/v2/api/ts/playlist.m3u8?station_id=%s&l=15&ft=%s&to=%s" -metadata title="%s" -metadata artist="%s" -metadata album="%s" -bsf:a aac_adtstoasc -acodec copy "%s"' %
+                   (AuthToken, channel, start, end, title, prog_data['pfm'], prog_data['title'], output))
         print(command)
         p1 = subprocess.run(command, shell=True)
         return None
 
-    
+
 if __name__ == '__main__':
     # ストリーミング録音モード radiko.py streaming (channel) (duration[min]) (filename)
     # タイムフリー録音モード radiko.py timefree (channel) (t_ft) (t_to) (filename)
     args = sys.argv
     radiko = Radiko()
-    
+
     if len(args) == 1:
         print("Usage")
-        print("ストリーミング録音モード radiko.py streaming (channel) (duration[min]) (filename)")
+        print(
+            "ストリーミング録音モード radiko.py streaming (channel) (duration[min]) (filename)")
         print("タイムフリー録音モード radiko.py timefree (channel) (t_ft) (t_to) (filename)")
     elif args[1] == "streaming":
         radiko.record_streaming(args[2], args[3], args[4])
     elif args[1] == "timefree":
         radiko.record_timefree(args[2], args[3], args[4], args[5])
-        
